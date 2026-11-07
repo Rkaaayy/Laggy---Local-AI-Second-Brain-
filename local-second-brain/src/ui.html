@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Laggy — Local Second Brain</title>
+  <link rel="icon" type="image/png" href="/static/logo.png" />
+  
+  <!-- Load the LiquidGlass library via CDN -->
+  <script type="module">
+    import { LiquidGlass } from 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
+    window.LiquidGlass = LiquidGlass;
+  </script>
+  <!-- Load Markdown Parser and Sanitizer for safe, beautiful formatting -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; }
+    
+    #glass-root { position: relative; display: flex; width: 100vw; height: 100vh; overflow: hidden; }
+    .bg-wallpaper { position: absolute; inset: 0; background: url('/static/bg.jpg') no-repeat center center fixed; background-size: cover; z-index: 0; }
+    
+    .glass { position: relative; z-index: 10; background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.15); backdrop-filter: blur(12px); border-radius: 20px; }
+    
+    .sidebar { width: 320px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; overflow-y: auto; margin: 1rem; height: calc(100vh - 2rem); }
+    
+    .main-content {
+      position: relative;
+      flex: 1;
+      display: grid;
+      grid-template-rows: auto 1fr auto; 
+      gap: 1rem;
+      padding: 1rem 1.5rem 0 0;
+      height: 100vh;
+    }
+    
+    .header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-radius: 16px; margin-top: 1rem; }
+    .logo-title { display: flex; align-items: center; gap: 0.75rem; }
+    .logo-title img { width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
+    .badge { padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 600; font-size: 0.85rem; }
+    .std { background: #3b82f6; color: white; }
+    .vault { background: #10b981; color: white; }
+    
+    #chat-box { overflow-y: auto; padding: 1.25rem; border-radius: 16px; display: flex; flex-direction: column; gap: 1rem; scroll-behavior: smooth; }
+    .msg { padding: 0.85rem 1.1rem; border-radius: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .user-msg { background: rgba(37, 99, 235, 0.85); align-self: flex-end; max-width: 75%; border: 1px solid rgba(255,255,255,0.2); }
+    .bot-msg { position: relative; padding-right: 3rem; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.1); align-self: flex-start; max-width: 85%; }
+
+    /* Markdown Styles */
+    .bot-msg h1, .bot-msg h2, .bot-msg h3 { margin-top: 0; margin-bottom: 0.5rem; color: #e2e8f0; }
+    .bot-msg p { margin: 0 0 0.75rem 0; }
+    .bot-msg p:last-child { margin-bottom: 0; }
+    .bot-msg a { color: #60a5fa; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
+    .bot-msg a:hover { border-bottom-color: #60a5fa; }
+    .bot-msg ul, .bot-msg ol { margin: 0 0 0.75rem 0; padding-left: 1.5rem; }
+    .bot-msg li { margin-bottom: 0.25rem; }
+    .bot-msg code { background: rgba(0,0,0,0.3); padding: 0.15rem 0.3rem; border-radius: 4px; font-family: monospace; font-size: 0.85em; }
+    .bot-msg pre { background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 8px; overflow-x: auto; margin: 0.5rem 0; }
+    .bot-msg pre code { background: transparent; padding: 0; }
+    
+    /* Copy Button */
+    .copy-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #94a3b8;
+      border-radius: 6px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s, background 0.2s, color 0.2s;
+      height: auto;
+    }
+    .bot-msg:hover .copy-btn { opacity: 1; }
+    .copy-btn:hover { background: rgba(255,255,255,0.2); color: white; }
+
+    .meta { font-size: 0.75rem; color: #94a3b8; margin-top: 0.4rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.35rem; }
+    
+    .controls { display: flex; gap: 0.5rem; align-items: flex-end; padding: 0.5rem; margin-bottom: 1rem; }
+    
+    select#upload-clearance { background: rgba(0,0,0,0.4); color: #94a3b8; border: none; padding: 0 0.5rem; border-radius: 12px; font-size: 0.85rem; outline: none; height: 48px; cursor: pointer; }
+    
+    textarea { flex: 1; padding: 0.8rem 1rem; border-radius: 12px; border: none; background: rgba(0, 0, 0, 0.2); color: white; font-size: 1rem; outline: none; resize: none; overflow-y: hidden; min-height: 48px; max-height: 200px; font-family: inherit; }
+    textarea:focus { background: rgba(0, 0, 0, 0.4); }
+    textarea:disabled { opacity: 0.6; cursor: not-allowed; }
+    
+    button { padding: 0.9rem 1.2rem; border-radius: 12px; border: none; background: #3b82f6; color: white; font-weight: 600; cursor: pointer; transition: all 0.2s ease; height: 48px; }
+    button:hover:not(:disabled) { background: #2563eb; transform: translateY(-1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .vault-btn { background: #10b981; }
+    .vault-btn:hover { background: #059669; }
+    .action-btn { background: #475569; padding: 0.4rem 0.8rem; height: auto; }
+    .upload-btn { background: #6366f1; width: 48px; padding: 0; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; }
+    
+    .section-title { font-size: 0.9rem; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; margin-bottom: 0.5rem; font-weight: 700; }
+    .topic-item { padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;}
+    .topic-item:hover, .topic-item.active { background: rgba(255,255,255,0.15); color: white; }
+    ul { padding-left: 1.2rem; margin: 0; color: #cbd5e1; font-size: 0.9rem; }
+    li { margin-bottom: 0.4rem; }
+
+    #mention-popup { position: absolute; bottom: 85px; left: 165px; width: 300px; max-height: 200px; overflow-y: auto; display: none; flex-direction: column; padding: 8px; border-radius: 12px; z-index: 100; border: 1px solid rgba(255,255,255,0.2); }
+    .mention-item { padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; color: #f8fafc; }
+    .mention-item:hover { background: rgba(59, 130, 246, 0.5); }
+    
+    .loading-msg { display: flex; align-items: center; gap: 0.75rem; color: #94a3b8; font-size: 0.95rem; }
+    .dots { display: inline-flex; align-items: center; gap: 4px; }
+    .dots span { width: 7px; height: 7px; background-color: #38bdf8; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
+    .dots span:nth-child(1) { animation-delay: -0.32s; }
+    .dots span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes bounce { 0%, 80%, 100% { transform: scale(0); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div id="glass-root">
+    <div class="bg-wallpaper"></div>
+
+    <div class="sidebar glass" id="sidebar-glass">
+      <div>
+        <h3 style="margin:0 0 0.5rem 0;">📁 Knowledge Vault</h3>
+        <small style="color:#94a3b8;">Auto-indexed via Watchdog</small>
+      </div>
+      
+      <div>
+        <div class="section-title">Chat Topics</div>
+        <div id="topic-list" style="display:flex; flex-direction:column; gap:4px; max-height:220px; overflow-y:auto;">
+          <small style="color:#94a3b8; padding-left:4px;">No recent chats.</small>
+        </div>
+      </div>
+      
+      <div>
+        <div class="section-title">Indexed Files</div>
+        <ul id="file-list"><li>Loading...</li></ul>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <div class="header glass" id="header-glass">
+        <div class="logo-title">
+          <img src="/static/logo.png" alt="Laggy Logo" />
+          <div>
+            <h2 style="margin:0;">LAGGY — Local AI Assistant</h2>
+            <small style="color:#94a3b8;">Air-Gapped on 127.0.0.1 | RTX 3070</small>
+          </div>
+        </div>
+        <div>
+          <span id="role-badge" class="badge std">Role: standard</span>
+          <button class="vault-btn action-btn" onclick="unlockVault()" style="margin-left:0.5rem;">🔓 Unlock 2FA Vault</button>
+          <button class="action-btn" onclick="startNewChat()" style="margin-left:0.5rem;">✨ New Chat</button>
+        </div>
+      </div>
+
+      <div id="chat-box" class="glass"></div>
+
+      <!-- Mention Overlay -->
+      <div id="mention-popup" class="glass"></div>
+
+      <div class="controls glass" id="controls-glass">
+        <select id="upload-clearance">
+          <option value="standard">📁 Standard</option>
+          <option value="vault">🔐 Vault</option>
+        </select>
+        
+        <input type="file" id="file-upload" style="display:none" onchange="handleFileUpload()" />
+        <button class="upload-btn" onclick="document.getElementById('file-upload').click()" title="Upload File">📎</button>
+        
+        <textarea id="q" placeholder="Ask about your files... (Use @ to tag files, Shift+Enter for new line)"></textarea>
+        
+        <button id="send-btn" onclick="send()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.copyToClipboard = function(btn, textToCopy) {
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "✓ Copied!";
+        btn.style.color = "#10b981";
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.style.color = "#94a3b8";
+        }, 2000);
+      });
+    }
+
+    function formatMessage(content) {
+      const rawHtml = marked.parse(content);
+      return DOMPurify.sanitize(rawHtml);
+    }
+
+    let jwtToken = "";
+    let glassInstance = null;
+    let currentSessionId = null;
+    let indexedFilesList = [];
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        const rootEl = document.querySelector('#glass-root');
+        const glassElements = document.querySelectorAll('.glass');
+        glassElements.forEach(el => el.dataset.config = JSON.stringify({ refraction: 0.8, blurAmount: 0.3, chromAberration: 0.05, cornerRadius: 16 }));
+        glassInstance = await window.LiquidGlass.init({ root: rootEl, glassElements: glassElements, defaults: { cornerRadius: 16, refraction: 0.8, blurAmount: 0.3, chromAberration: 0.05 } });
+      } catch (err) {}
+      
+      setupTextarea();
+      alsoFetchAuth(null);
+    });
+
+    async function alsoFetchAuth(code) {
+      const res = await fetch("/api/auth", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({totp_code: code}) });
+      if (!res.ok) { alert("Invalid 2FA Code!"); return; }
+      const data = await res.json();
+      jwtToken = data.token;
+      
+      const badge = document.getElementById("role-badge");
+      badge.textContent = "Role: " + data.role;
+      badge.className = "badge " + (data.role === "vault_admin" ? "vault" : "std");
+      
+      startNewChat();
+      refreshSidebar();
+      loadSessions();
+    }
+
+    async function unlockVault() {
+      const code = prompt("Enter your 6-digit TOTP code (or type UNLOCK for local demo):", "UNLOCK");
+      if (code) await alsoFetchAuth(code);
+    }
+
+    async function refreshSidebar() {
+      try {
+        const res = await fetch("/api/status");
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        const fetchedFiles = data.files.map(f => f.filename);
+        indexedFilesList = Array.from(new Set([...indexedFilesList, ...fetchedFiles]));
+        
+        const fileList = document.getElementById("file-list");
+        fileList.innerHTML = data.files.length 
+          ? data.files.map(f => `<li><b>${f.filename}</b> <span style="font-size:0.75rem; color:#94a3b8;">(${f.clearance})</span></li>`).join('') 
+          : '<li style="color:#94a3b8;">No files indexed yet</li>';
+          
+        if (glassInstance) glassInstance.markChanged();
+      } catch (e) {}
+    }
+
+    async function loadSessions() {
+      if (!jwtToken) return;
+      const res = await fetch(`/api/sessions?token=${jwtToken}`);
+      const sessions = await res.json();
+      const topicList = document.getElementById("topic-list");
+      
+      if (!sessions.length) {
+        topicList.innerHTML = `<small style="color:#94a3b8; padding-left:4px;">No recent chats.</small>`;
+        return;
+      }
+      
+      topicList.innerHTML = sessions.map(s => 
+        `<div class="topic-item ${s.id === currentSessionId ? 'active' : ''}" onclick="loadChat('${s.id}')">💬 ${s.title}</div>`
+      ).join('');
+    }
+
+    function showGreeting() {
+      document.getElementById("chat-box").innerHTML = `
+        <div class="msg bot-msg" style="align-self:center; margin:auto; text-align:center; background:transparent; border:none;">
+          <img src="/static/logo.png" style="width:80px; filter:drop-shadow(0 4px 6px rgba(0,0,0,0.4)); margin-bottom:1rem;" />
+          <h2 style="margin:0 0 0.5rem 0;">Welcome to Laggy.</h2>
+          <p style="color:#94a3b8; margin:0;">How can I help you organize your thoughts today?</p>
+        </div>
+      `;
+    }
+
+    function startNewChat() {
+      currentSessionId = null;
+      showGreeting();
+      loadSessions();
+    }
+
+    async function loadChat(sessionId) {
+      currentSessionId = sessionId;
+      const res = await fetch(`/api/sessions/${sessionId}?token=${jwtToken}`);
+      const messages = await res.json();
+      
+      const box = document.getElementById("chat-box");
+      box.innerHTML = "";
+      
+      messages.forEach(m => {
+        if (m.role === "user") {
+          box.innerHTML += `<div class="msg user-msg">${m.content}</div>`;
+        } else {
+          const safeHtml = formatMessage(m.content);
+          const safeText = m.content.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+          box.innerHTML += `<div class="msg bot-msg">
+            <button class="copy-btn" onclick="copyToClipboard(this, '${safeText}')">📋 Copy</button>
+            <div class="markdown-body">${safeHtml}</div>
+            <div class="meta">⚡ Route: ${m.source} | 🧠 Model: ${m.model_used} | ⏱️ ${m.latency_sec}s</div>
+          </div>`;
+        }
+      });
+      box.scrollTop = box.scrollHeight;
+      loadSessions(); 
+      if (glassInstance) glassInstance.markChanged();
+    }
+
+    function setupTextarea() {
+      const q = document.getElementById("q");
+      const popup = document.getElementById("mention-popup");
+      
+      q.addEventListener("input", function() {
+        this.style.height = "48px";
+        this.style.height = (this.scrollHeight) + "px";
+        
+        const val = this.value;
+        const lastAt = val.lastIndexOf("@");
+        if (lastAt !== -1 && !val.includes(" ", lastAt)) {
+          const query = val.substring(lastAt + 1).toLowerCase();
+          const matches = indexedFilesList.filter(f => f.toLowerCase().includes(query));
+          
+          if (matches.length > 0) {
+            popup.style.display = "flex";
+            popup.innerHTML = matches.map(m => `<div class="mention-item" onclick="insertMention('${m}', ${lastAt})">📄 ${m}</div>`).join('');
+          } else {
+            popup.style.display = "none";
+          }
+        } else {
+          popup.style.display = "none";
+        }
+        if (glassInstance) glassInstance.markChanged();
+      });
+
+      q.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (popup.style.display === "flex") {
+            popup.style.display = "none";
+          } else {
+            send();
+          }
+        }
+      });
+    }
+
+    window.insertMention = function(filename, atIndex) {
+      const q = document.getElementById("q");
+      const before = q.value.substring(0, atIndex);
+      q.value = before + "[" + filename + "] ";
+      document.getElementById("mention-popup").style.display = "none";
+      q.focus();
+    }
+
+    async function handleFileUpload() {
+      const fileInput = document.getElementById("file-upload");
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const clearance = document.getElementById("upload-clearance").value;
+      const reader = new FileReader();
+      
+      reader.onload = async (e) => {
+        try {
+          const b64 = e.target.result.split(',')[1];
+          const payload = {
+            filename: file.name,
+            content_b64: b64,
+            clearance: clearance,
+            token: jwtToken
+          };
+          
+          const res = await fetch("/api/upload", { 
+            method: "POST", 
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+          });
+          
+          if (!res.ok) throw new Error(await res.text());
+          
+          if (!indexedFilesList.includes(file.name)) {
+             indexedFilesList.push(file.name);
+          }
+          
+          const box = document.getElementById("chat-box");
+          if(currentSessionId === null) box.innerHTML = "";
+          box.innerHTML += `<div class="msg bot-msg" style="color:#10b981;">✅ Uploaded <b>${file.name}</b> to ${clearance} docs. Watchdog is indexing it now.</div>`;
+          box.scrollTop = box.scrollHeight;
+          
+          setTimeout(refreshSidebar, 3000); 
+        } catch (err) {
+          alert("Upload failed: " + err.message);
+        }
+        fileInput.value = "";
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function send() {
+      const input = document.getElementById("q");
+      const sendBtn = document.getElementById("send-btn");
+      const query = input.value.trim();
+      if (!query || input.disabled) return;
+
+      input.value = "";
+      input.style.height = "48px";
+      input.disabled = true;
+      sendBtn.disabled = true;
+      document.getElementById("mention-popup").style.display = "none";
+
+      const box = document.getElementById("chat-box");
+      if (currentSessionId === null) box.innerHTML = ""; 
+      
+      box.innerHTML += `<div class="msg user-msg">${query}</div>`;
+      
+      const loadingDiv = document.createElement("div");
+      loadingDiv.className = "msg bot-msg loading-msg";
+      loadingDiv.innerHTML = `<span>Laggy is thinking</span><div class="dots"><span></span><span></span><span></span></div>`;
+      box.appendChild(loadingDiv);
+      box.scrollTop = box.scrollHeight;
+      if (glassInstance) glassInstance.markChanged();
+
+      try {
+        const payload = { query: query, token: jwtToken };
+        if (currentSessionId) payload.session_id = currentSessionId;
+        
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        if (data.session_id) currentSessionId = data.session_id;
+
+        loadingDiv.remove();
+        
+        const safeHtml = formatMessage(data.response);
+        const safeText = data.response.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        box.innerHTML += `<div class="msg bot-msg">
+            <button class="copy-btn" onclick="copyToClipboard(this, '${safeText}')">📋 Copy</button>
+            <div class="markdown-body">${safeHtml}</div>
+            <div class="meta">⚡ Route: ${data.source} | 🧠 Model: ${data.model_used} | ⏱️ ${data.latency_sec}s</div>
+        </div>`;
+        
+        loadSessions(); 
+      } catch (err) {
+        loadingDiv.remove();
+        box.innerHTML += `<div class="msg bot-msg" style="color:#ef4444;">Connection error.</div>`;
+      } finally {
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+        box.scrollTop = box.scrollHeight;
+        if (glassInstance) glassInstance.markChanged();
+      }
+    }
+  </script>
+</body>
+</html>
