@@ -34,3 +34,11 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+qdrant_storage/
+data/
+logs/
+*.db
+*.sqlite
+__pycache__/
+venv/
