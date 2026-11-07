@@ -25,8 +25,8 @@ INJECTION_PATTERNS = [
     r"print\s+(your\s+)?(system\s+prompt|initial\s+instructions)",
 ]
 
-# Categories allowed for a Personal Assistant (S6 = Specialized Fitness/Financial/Legal notes)
-ALLOWED_PERSONAL_CATEGORIES = {"S2", "S6", "S8"}
+# Categories allowed for a Personal Assistant 
+ALLOWED_PERSONAL_CATEGORIES = {"S1", "S2", "S6", "S8"}
 
 
 # =====================================================================
@@ -65,6 +65,9 @@ def check_input_guardrail(text: str) -> dict:
                 "allowed": False,
                 "reason": f"LLAMA-GUARD-3 BLOCKED: Input flagged as unsafe ({', '.join(blocking_cats)}).",
             }
+        else:
+            # Log when we intentionally bypass a false positive
+            print(f"[*] Ignored Llama-Guard false positive for categories: {', '.join(flagged_cats)}")
 
     return {"allowed": True, "reason": "SAFE"}
 
