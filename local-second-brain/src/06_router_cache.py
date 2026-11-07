@@ -85,6 +85,8 @@ AGENT_KEYWORDS = [
     "file", "contract", "pin", "workout", "split", "diet", "meal",
     "task", "to-do", "todo", "add", "list", "save", "note", "markdown",
     "start date", "position", "vault", "indexed", "schedule",
+    # Added Web Search Triggers
+    "search", "web", "internet", "look up", "lookup", "online", "fetch", "rate", "rupee", "euro"
 ]
 
 

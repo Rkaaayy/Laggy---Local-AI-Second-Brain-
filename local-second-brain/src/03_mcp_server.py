@@ -117,42 +117,44 @@ def search_the_web(query: str, auth_token: str) -> str:
     try:
         import urllib.request
         import urllib.parse
-        import json
+        import re
         
-        # We use a public, unauthenticated DuckDuckGo HTML scrape or a free API.
-        # For this air-gapped system, we can use the DuckDuckGo Lite HTML interface and parse it natively to avoid heavy dependencies.
         url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query)
         req = urllib.request.Request(
             url, 
             data=None, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
         )
         
         html = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
         
-        # Simple extraction using regex for zero-dependency parsing
-        import re
         results = []
-        # Find result blocks
-        blocks = re.findall(r'<a class="result__url" href="([^"]+)".*?>(.*?)</a>.*?<a class="result__snippet[^>]+>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+        # Updated, more resilient regex for DuckDuckGo Lite
+        blocks = re.findall(r'<a class="result__url" href="([^"]+)".*?>(.*?)</a>.*?<a class="result__snippet[^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
         
-        for url, title, snippet in blocks[:4]: # Get top 4
-            # Clean HTML tags
+        for url, title, snippet in blocks[:4]:
             clean_title = re.sub(r'<[^>]+>', '', title).strip()
             clean_snippet = re.sub(r'<[^>]+>', '', snippet).strip()
-            # DuckDuckGo sometimes prepends redirect URLs
             clean_url = urllib.parse.unquote(url.split('uddg=')[-1].split('&')[0]) if 'uddg=' in url else url
             results.append(f"Title: {clean_title}\nURL: {clean_url}\nSummary: {clean_snippet}")
             
+        # Hard Fallback: If DDG changed their HTML again, strip all HTML and return the raw text block
         if not results:
-            return "No web search results found."
+            text_only = re.sub(r'<style.*?</style>', '', html, flags=re.DOTALL)
+            text_only = re.sub(r'<script.*?</script>', '', text_only, flags=re.DOTALL)
+            text_only = re.sub(r'<[^>]+>', ' ', text_only)
+            text_only = re.sub(r'\s+', ' ', text_only).strip()
+            # Grab a chunk of text that likely contains the results
+            fallback_text = text_only[1000:4000] if len(text_only) > 1000 else text_only
+            return f"Raw Web Content Fallback:\n{fallback_text}"
             
         return "\n\n---\n\n".join(results)
     except Exception as e:
         return f"Web search failed: {e}"
 
 OLLAMA_TOOL_SCHEMAS = [
-
     {
         "type": "function",
         "function": {
@@ -167,8 +169,6 @@ OLLAMA_TOOL_SCHEMAS = [
             },
         },
     },
-
-
     {
         "type": "function",
         "function": {
