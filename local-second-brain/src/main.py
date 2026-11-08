@@ -67,10 +67,11 @@ def process_laggy_request(user_query: str, session_jwt: str, session_id: str = N
             span.set_attribute("user.role", user_role)
             span.set_attribute("input.query", user_query)
 
-        # 1. Input Guardrail
-        guard_check = guard_mod.check_input_guardrail(user_query)
-        if not guard_check["allowed"]:
-            return {"role": user_role, "source": "INPUT_GUARDRAIL_BLOCK", "model_used": "llama-guard3:1b", "latency_sec": round(time.perf_counter() - start_ts, 3), "response": f"Security Block: {guard_check['reason']}"}
+        # 1. Input Guardrail (Bypass for Vault Admin to speed up inference)
+        if user_role != "vault_admin":
+            guard_check = guard_mod.check_input_guardrail(user_query)
+            if not guard_check["allowed"]:
+                return {"role": user_role, "source": "INPUT_GUARDRAIL_BLOCK", "model_used": "llama-guard3:1b", "latency_sec": round(time.perf_counter() - start_ts, 3), "response": f"Security Block: {guard_check['reason']}"}
 
         # 2. Manage Chat Session & History
         if not session_id:
@@ -86,7 +87,7 @@ def process_laggy_request(user_query: str, session_jwt: str, session_id: str = N
                 history.append({"role": r[0], "content": r[1]})
 
         # 3. Model Router & RAG MCP
-        routed_res = router_mod.routed_query(user_query, session_jwt, chat_history=history[-10:])
+        routed_res = router_mod.routed_query(user_query, session_jwt, chat_history=history[-10:], current_session_id=session_id)
 
         # 4. Output Guardrail
         safe_response = guard_mod.redact_sensitive_output(routed_res["response"], user_role=user_role)
@@ -184,11 +185,13 @@ def chat_stream_endpoint(req: ChatRequest):
         session_info = auth_mod.verify_token_and_permissions(req.token)
         user_role = session_info["role"]
         
-        guard_check = guard_mod.check_input_guardrail(req.query)
-        if not guard_check["allowed"]:
-            def block_gen():
-                yield f"data: {json.dumps({'token': f'Security Block: {guard_check['reason']}'})}\n\n"
-            return StreamingResponse(block_gen(), media_type="text/event-stream")
+        # Input Guardrail (Bypass for Vault Admin to speed up inference)
+        if user_role != "vault_admin":
+            guard_check = guard_mod.check_input_guardrail(req.query)
+            if not guard_check["allowed"]:
+                def block_gen():
+                    yield f"data: {json.dumps({'token': f'Security Block: {guard_check['reason']}'})}\n\n"
+                return StreamingResponse(block_gen(), media_type="text/event-stream")
 
         def event_generator():
             start_ts = time.perf_counter()
@@ -233,13 +236,16 @@ def chat_stream_endpoint(req: ChatRequest):
                 model_used = target_model
                 
                 if target_model == router_mod.SMALL_FAST_MODEL:
-                    sys_prompt = prompt_mod.load_system_prompt()
+                    # Pass the memory_context retrieved in the router to the generator
+                    memory_context = router_mod.retrieve_cross_chat_memory(req.query, session_id, user_role)
+                    sys_prompt = prompt_mod.load_system_prompt(memory_context=memory_context)
                     for token in router_mod.stream_fast_model(req.query, sys_prompt):
                         full_response += token
                         yield f"data: {json.dumps({'token': token})}\n\n"
                 else:
-                    # Agent queries run in full to manage tools, then yield
-                    full_response = mcp_mod.run_agent_turn(req.query, session_jwt=req.token, chat_history=history[-10:])
+                    # Pass the memory_context down through the agent
+                    memory_context = router_mod.retrieve_cross_chat_memory(req.query, session_id, user_role)
+                    full_response = mcp_mod.run_agent_turn(req.query, session_jwt=req.token, chat_history=history[-10:], memory_context=memory_context)
                     yield f"data: {json.dumps({'token': full_response})}\n\n"
                     
                 if not is_followup and query_vec is not None:
