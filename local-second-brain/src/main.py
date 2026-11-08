@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import json
 import uuid
 import base64
 import sqlite3
@@ -9,7 +10,7 @@ from pathlib import Path
 from importlib import import_module
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 
@@ -52,7 +53,7 @@ except Exception as e:
 
 
 # =====================================================================
-# MASTER PIPELINE
+# MASTER PIPELINE (Non-Streaming / Testing)
 # =====================================================================
 def process_laggy_request(user_query: str, session_jwt: str, session_id: str = None) -> dict:
     start_ts = time.perf_counter()
@@ -172,6 +173,90 @@ def authenticate(req: AuthRequest):
 def chat_endpoint(req: ChatRequest):
     try:
         return process_laggy_request(req.query, req.token, req.session_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+
+@app.post("/api/chat_stream")
+def chat_stream_endpoint(req: ChatRequest):
+    """Streaming endpoint for the Web UI."""
+    try:
+        session_info = auth_mod.verify_token_and_permissions(req.token)
+        user_role = session_info["role"]
+        
+        guard_check = guard_mod.check_input_guardrail(req.query)
+        if not guard_check["allowed"]:
+            def block_gen():
+                yield f"data: {json.dumps({'token': f'Security Block: {guard_check['reason']}'})}\n\n"
+            return StreamingResponse(block_gen(), media_type="text/event-stream")
+
+        def event_generator():
+            start_ts = time.perf_counter()
+            session_id = req.session_id
+            
+            # 1. DB Session Management
+            if not session_id:
+                session_id = str(uuid.uuid4())
+                title = " ".join(req.query.split()[:5]) + "..."
+                with sqlite3.connect(CHAT_DB_PATH) as conn:
+                    conn.execute("INSERT INTO sessions (id, title, role, created_at) VALUES (?, ?, ?, ?)", (session_id, title, user_role, time.time()))
+            
+            history = []
+            with sqlite3.connect(CHAT_DB_PATH) as conn:
+                rows = conn.execute("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC", (session_id,)).fetchall()
+                history = [{"role": r[0], "content": r[1]} for r in rows]
+
+            # Push session ID to frontend immediately
+            yield f"data: {json.dumps({'session_id': session_id})}\n\n"
+
+            # 2. Router classification
+            q_words = set(req.query.lower().split())
+            is_followup = bool(history) and bool(q_words & {"this", "that", "it", "more", "instead", "change", "no", "also"})
+            
+            cached_ans, query_vec, _ = (None, None, 0.0)
+            if not is_followup:
+                cached_ans, query_vec, _ = router_mod.check_semantic_cache(req.query, user_role)
+            
+            full_response = ""
+            source_used = ""
+            model_used = ""
+            
+            # 3. Model Generation
+            if cached_ans:
+                full_response = cached_ans
+                source_used = "REDIS_SEMANTIC_CACHE"
+                model_used = "NONE"
+                yield f"data: {json.dumps({'token': full_response})}\n\n"
+            else:
+                target_model = router_mod.classify_and_route(req.query) if not is_followup else router_mod.FRONTIER_LOCAL_MODEL
+                source_used = "LIVE_INFERENCE"
+                model_used = target_model
+                
+                if target_model == router_mod.SMALL_FAST_MODEL:
+                    sys_prompt = prompt_mod.load_system_prompt()
+                    for token in router_mod.stream_fast_model(req.query, sys_prompt):
+                        full_response += token
+                        yield f"data: {json.dumps({'token': token})}\n\n"
+                else:
+                    # Agent queries run in full to manage tools, then yield
+                    full_response = mcp_mod.run_agent_turn(req.query, session_jwt=req.token, chat_history=history[-10:])
+                    yield f"data: {json.dumps({'token': full_response})}\n\n"
+                    
+                if not is_followup and query_vec is not None:
+                    router_mod.store_in_semantic_cache(req.query, query_vec, full_response, user_role)
+
+            # 4. Cleanup & DB Storage
+            safe_memory_response = guard_mod.redact_sensitive_output(full_response, user_role=user_role)
+            latency = round(time.perf_counter() - start_ts, 3)
+
+            with sqlite3.connect(CHAT_DB_PATH) as conn:
+                conn.execute("INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)", (session_id, "user", req.query))
+                conn.execute("INSERT INTO messages (session_id, role, content, source, model_used, latency_sec) VALUES (?, ?, ?, ?, ?, ?)", 
+                             (session_id, "assistant", safe_memory_response, source_used, model_used, latency))
+            
+            yield f"data: {json.dumps({'meta': {'source': source_used, 'model': model_used, 'latency': latency}})}\n\n"
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 

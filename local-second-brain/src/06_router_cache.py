@@ -104,6 +104,20 @@ def classify_and_route(query: str) -> str:
     return SMALL_FAST_MODEL
 
 
+def stream_fast_model(user_query: str, sys_prompt: str):
+    """Generator that yields tokens one by one for the streaming UI."""
+    stream_res = ollama.chat(
+        model=SMALL_FAST_MODEL,
+        messages=[
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_query},
+        ],
+        stream=True
+    )
+    for chunk in stream_res:
+        yield chunk['message']['content']
+
+
 def routed_query(user_query: str, session_jwt: str, chat_history: list = None) -> dict:
     """End-to-end execution: RBAC Check -> Semantic Cache -> Model Router -> LLM/MCP."""
     start_time = time.perf_counter()
@@ -123,7 +137,7 @@ def routed_query(user_query: str, session_jwt: str, chat_history: list = None) -
     if cached_ans:
         elapsed = time.perf_counter() - start_time
         return {
-            "source": f"REDIS_SEMANTIC_CACHE (Similarity: {sim_score:.3f})",
+            "source": f"REDIS_SEMANTIC_CACHE",
             "model_used": "NONE (0 LLM Tokens)",
             "latency_sec": round(elapsed, 3),
             "response": cached_ans,
@@ -149,7 +163,7 @@ def routed_query(user_query: str, session_jwt: str, chat_history: list = None) -
 
     elapsed = time.perf_counter() - start_time
     return {
-        "source": "LIVE_INFERENCE (Multi-Turn)" if is_followup else "LIVE_INFERENCE (Cache Miss)",
+        "source": "LIVE_INFERENCE",
         "model_used": target_model,
         "latency_sec": round(elapsed, 3),
         "response": answer,

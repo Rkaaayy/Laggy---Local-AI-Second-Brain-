@@ -400,7 +400,7 @@
       const input = document.getElementById("q");
       const sendBtn = document.getElementById("send-btn");
       const query = input.value.trim();
-      if (!query || input.disabled) return;
+      if (!query || input.disabled || !jwtToken) return;
 
       input.value = "";
       input.style.height = "48px";
@@ -413,40 +413,73 @@
       
       box.innerHTML += `<div class="msg user-msg">${query}</div>`;
       
-      const loadingDiv = document.createElement("div");
-      loadingDiv.className = "msg bot-msg loading-msg";
-      loadingDiv.innerHTML = `<span>Laggy is thinking</span><div class="dots"><span></span><span></span><span></span></div>`;
-      box.appendChild(loadingDiv);
+      const msgDiv = document.createElement("div");
+      msgDiv.className = "msg bot-msg";
+      
+      const markdownBody = document.createElement("div");
+      markdownBody.className = "markdown-body";
+      msgDiv.appendChild(markdownBody);
+      
+      const metaDiv = document.createElement("div");
+      metaDiv.className = "meta";
+      msgDiv.appendChild(metaDiv);
+      
+      box.appendChild(msgDiv);
       box.scrollTop = box.scrollHeight;
       if (glassInstance) glassInstance.markChanged();
+
+      let fullResponse = "";
 
       try {
         const payload = { query: query, token: jwtToken };
         if (currentSessionId) payload.session_id = currentSessionId;
         
-        const res = await fetch("/api/chat", {
+        const res = await fetch("/api/chat_stream", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload)
         });
-        const data = await res.json();
-        
-        if (data.session_id) currentSessionId = data.session_id;
 
-        loadingDiv.remove();
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+          
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const jsonStr = line.replace("data: ", "").trim();
+              if (jsonStr) {
+                const parsed = JSON.parse(jsonStr);
+                
+                if (parsed.session_id) {
+                    currentSessionId = parsed.session_id;
+                } else if (parsed.meta) {
+                    metaDiv.innerHTML = `⚡ Route: ${parsed.meta.source} | 🧠 Model: ${parsed.meta.model} | ⏱️ ${parsed.meta.latency}s`;
+                } else if (parsed.token) {
+                    fullResponse += parsed.token;
+                    markdownBody.innerHTML = formatMessage(fullResponse);
+                    box.scrollTop = box.scrollHeight;
+                }
+              }
+            }
+          }
+        }
         
-        const safeHtml = formatMessage(data.response);
-        const safeText = data.response.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        box.innerHTML += `<div class="msg bot-msg">
-            <button class="copy-btn" onclick="copyToClipboard(this, '${safeText}')">📋 Copy</button>
-            <div class="markdown-body">${safeHtml}</div>
-            <div class="meta">⚡ Route: ${data.source} | 🧠 Model: ${data.model_used} | ⏱️ ${data.latency_sec}s</div>
-        </div>`;
-        
-        loadSessions(); 
+        const safeText = fullResponse.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const copyBtn = document.createElement("button");
+        copyBtn.className = "copy-btn";
+        copyBtn.innerHTML = "📋 Copy";
+        copyBtn.onclick = () => copyToClipboard(copyBtn, safeText);
+        msgDiv.insertBefore(copyBtn, msgDiv.firstChild);
+
+        loadSessions();
       } catch (err) {
-        loadingDiv.remove();
-        box.innerHTML += `<div class="msg bot-msg" style="color:#ef4444;">Connection error.</div>`;
+        markdownBody.innerHTML = `<div style="color:#ef4444;">Error: Connection lost or request blocked.</div>`;
       } finally {
         input.disabled = false;
         sendBtn.disabled = false;
