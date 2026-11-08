@@ -92,6 +92,17 @@ local-second-brain/
    mkdir data\vault_docs
    ```
 2. Place any sample `.txt`, `.md`, or `.pdf` files you want Laggy to index inside `data/standard_docs/`.
+3. Create your `profile.json` file: Create this file and place it under `data/` folder and create a code block like the following example:
+
+{
+  "assistant_name": "Laggy",
+  "owner_name": "Your Name",
+  "role": "Your Role",
+  "preferences": ["Keep answers concise and direct.",
+   "Format code snippets with proper markdown.",
+   "Never use emojis in professional responses."
+  ]
+}
 
 ---
 
