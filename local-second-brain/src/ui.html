@@ -418,6 +418,9 @@
       
       const markdownBody = document.createElement("div");
       markdownBody.className = "markdown-body";
+      
+      // INJECT THE THINKING ANIMATION
+      markdownBody.innerHTML = `<div class="loading-msg" id="thinking-anim"><span>Laggy is thinking</span><div class="dots"><span></span><span></span><span></span></div></div>`;
       msgDiv.appendChild(markdownBody);
       
       const metaDiv = document.createElement("div");
@@ -429,6 +432,7 @@
       if (glassInstance) glassInstance.markChanged();
 
       let fullResponse = "";
+      let isFirstToken = true;
 
       try {
         const payload = { query: query, token: jwtToken };
@@ -461,6 +465,11 @@
                 } else if (parsed.meta) {
                     metaDiv.innerHTML = `⚡ Route: ${parsed.meta.source} | 🧠 Model: ${parsed.meta.model} | ⏱️ ${parsed.meta.latency}s`;
                 } else if (parsed.token) {
+                    // REMOVE THE THINKING ANIMATION WHEN THE FIRST TOKEN ARRIVES
+                    if (isFirstToken) {
+                        markdownBody.innerHTML = "";
+                        isFirstToken = false;
+                    }
                     fullResponse += parsed.token;
                     markdownBody.innerHTML = formatMessage(fullResponse);
                     box.scrollTop = box.scrollHeight;
