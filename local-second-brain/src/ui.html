@@ -6,12 +6,10 @@
   <title>Laggy — Local Second Brain</title>
   <link rel="icon" type="image/png" href="/static/logo.png" />
   
-  <!-- Load the LiquidGlass library via CDN -->
   <script type="module">
     import { LiquidGlass } from 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
     window.LiquidGlass = LiquidGlass;
   </script>
-  <!-- Load Markdown Parser and Sanitizer for safe, beautiful formatting -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
 
@@ -19,7 +17,6 @@
     *, *::before, *::after { box-sizing: border-box; }
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; }
     
-    /* ENFORCE TEXT SELECTION FOR RIGHT CLICK/COPY */
     body { user-select: text; -webkit-user-select: text; }
     #chat-box { user-select: text; -webkit-user-select: text; }
     .msg { user-select: text; -webkit-user-select: text; pointer-events: auto; }
@@ -32,15 +29,7 @@
     
     .sidebar { width: 320px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; overflow-y: auto; margin: 1rem; height: calc(100vh - 2rem); }
     
-    .main-content {
-      position: relative;
-      flex: 1;
-      display: grid;
-      grid-template-rows: auto 1fr auto; 
-      gap: 1rem;
-      padding: 1rem 1.5rem 0 0;
-      height: 100vh;
-    }
+    .main-content { position: relative; flex: 1; display: grid; grid-template-rows: auto 1fr auto; gap: 1rem; padding: 1rem 1.5rem 0 0; height: 100vh; }
     
     .header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-radius: 16px; margin-top: 1rem; }
     .logo-title { display: flex; align-items: center; gap: 0.75rem; }
@@ -54,7 +43,6 @@
     .user-msg { background: rgba(37, 99, 235, 0.85); align-self: flex-end; max-width: 75%; border: 1px solid rgba(255,255,255,0.2); }
     .bot-msg { position: relative; padding-right: 3rem; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.1); align-self: flex-start; max-width: 85%; }
 
-    /* Markdown Styles */
     .bot-msg h1, .bot-msg h2, .bot-msg h3 { margin-top: 0; margin-bottom: 0.5rem; color: #e2e8f0; }
     .bot-msg p { margin: 0 0 0.75rem 0; }
     .bot-msg p:last-child { margin-bottom: 0; }
@@ -66,22 +54,7 @@
     .bot-msg pre { background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 8px; overflow-x: auto; margin: 0.5rem 0; }
     .bot-msg pre code { background: transparent; padding: 0; }
     
-    /* Copy Button */
-    .copy-btn {
-      position: absolute;
-      top: 0.5rem;
-      right: 0.5rem;
-      background: rgba(255,255,255,0.1);
-      border: 1px solid rgba(255,255,255,0.2);
-      color: #94a3b8;
-      border-radius: 6px;
-      padding: 0.25rem 0.5rem;
-      font-size: 0.75rem;
-      cursor: pointer;
-      opacity: 0;
-      transition: opacity 0.2s, background 0.2s, color 0.2s;
-      height: auto;
-    }
+    .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #94a3b8; border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; opacity: 0; transition: opacity 0.2s, background 0.2s, color 0.2s; height: auto; }
     .bot-msg:hover .copy-btn { opacity: 1; }
     .copy-btn:hover { background: rgba(255,255,255,0.2); color: white; }
 
@@ -89,7 +62,8 @@
     
     .controls { display: flex; gap: 0.5rem; align-items: flex-end; padding: 0.5rem; margin-bottom: 1rem; }
     
-    select#upload-clearance { background: rgba(0,0,0,0.4); color: #94a3b8; border: none; padding: 0 0.5rem; border-radius: 12px; font-size: 0.85rem; outline: none; height: 48px; cursor: pointer; }
+    select#upload-clearance, select#skill-select { background: rgba(0,0,0,0.4); color: #94a3b8; border: none; padding: 0 0.5rem; border-radius: 12px; font-size: 0.85rem; outline: none; height: 48px; cursor: pointer; }
+    select#skill-select { max-width: 150px; }
     
     textarea { flex: 1; padding: 0.8rem 1rem; border-radius: 12px; border: none; background: rgba(0, 0, 0, 0.2); color: white; font-size: 1rem; outline: none; resize: none; overflow-y: hidden; min-height: 48px; max-height: 200px; font-family: inherit; }
     textarea:focus { background: rgba(0, 0, 0, 0.4); }
@@ -172,6 +146,10 @@
           <option value="vault">🔐 Vault</option>
         </select>
         
+        <select id="skill-select" title="Active Skill">
+          <option value="">🧠 Auto-Detect Skill</option>
+        </select>
+        
         <input type="file" id="file-upload" style="display:none" onchange="handleFileUpload()" />
         <button class="upload-btn" onclick="document.getElementById('file-upload').click()" title="Upload File">📎</button>
         
@@ -209,25 +187,17 @@
       exportContent += "=================================================\n\n";
 
       messages.forEach(msg => {
-        // Skip the typing animation block if it's currently active
         if (msg.classList.contains("loading-msg") || msg.id === "thinking-anim") return;
-
-        // Clone the node so we can remove the UI buttons/metadata before getting the text
         const clone = msg.cloneNode(true);
-        
         const copyBtn = clone.querySelector(".copy-btn");
         if (copyBtn) copyBtn.remove();
-        
         const metaDiv = clone.querySelector(".meta");
         if (metaDiv) metaDiv.remove();
 
-        // Check if user or laggy
         const sender = msg.classList.contains("user-msg") ? "USER:" : "LAGGY:";
-        
         exportContent += `${sender}\n${clone.innerText.trim()}\n\n`;
       });
 
-      // Trigger the browser download
       const blob = new Blob([exportContent], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -259,6 +229,7 @@
       
       setupTextarea();
       alsoFetchAuth(null);
+      refreshSkills();
     });
 
     async function alsoFetchAuth(code) {
@@ -274,6 +245,19 @@
       startNewChat();
       refreshSidebar();
       loadSessions();
+    }
+
+    async function refreshSkills() {
+      try {
+        const res = await fetch("/api/skills");
+        if (!res.ok) return;
+        const skills = await res.json();
+        const skillSelect = document.getElementById("skill-select");
+        skillSelect.innerHTML = '<option value="">🧠 Auto-Detect</option>';
+        skills.forEach(s => {
+          skillSelect.innerHTML += `<option value="${s.id}">⚡ ${s.name}</option>`;
+        });
+      } catch (e) {}
     }
 
     async function unlockVault() {
@@ -329,6 +313,7 @@
       currentSessionId = null;
       showGreeting();
       loadSessions();
+      refreshSkills();
     }
 
     async function loadChat(sessionId) {
@@ -451,6 +436,8 @@
       const input = document.getElementById("q");
       const sendBtn = document.getElementById("send-btn");
       const query = input.value.trim();
+      const activeSkill = document.getElementById("skill-select").value;
+      
       if (!query || input.disabled || !jwtToken) return;
 
       input.value = "";
@@ -470,7 +457,6 @@
       const markdownBody = document.createElement("div");
       markdownBody.className = "markdown-body";
       
-      // INJECT THE THINKING ANIMATION
       markdownBody.innerHTML = `<div class="loading-msg" id="thinking-anim"><span>Laggy is thinking</span><div class="dots"><span></span><span></span><span></span></div></div>`;
       msgDiv.appendChild(markdownBody);
       
@@ -488,6 +474,7 @@
       try {
         const payload = { query: query, token: jwtToken };
         if (currentSessionId) payload.session_id = currentSessionId;
+        if (activeSkill) payload.active_skill = activeSkill;
         
         const res = await fetch("/api/chat_stream", {
           method: "POST",
@@ -516,7 +503,6 @@
                 } else if (parsed.meta) {
                     metaDiv.innerHTML = `⚡ Route: ${parsed.meta.source} | 🧠 Model: ${parsed.meta.model} | ⏱️ ${parsed.meta.latency}s`;
                 } else if (parsed.token) {
-                    // REMOVE THE THINKING ANIMATION WHEN THE FIRST TOKEN ARRIVES
                     if (isFirstToken) {
                         markdownBody.innerHTML = "";
                         isFirstToken = false;
