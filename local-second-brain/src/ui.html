@@ -19,6 +19,12 @@
     *, *::before, *::after { box-sizing: border-box; }
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; }
     
+    /* ENFORCE TEXT SELECTION FOR RIGHT CLICK/COPY */
+    body { user-select: text; -webkit-user-select: text; }
+    #chat-box { user-select: text; -webkit-user-select: text; }
+    .msg { user-select: text; -webkit-user-select: text; pointer-events: auto; }
+    .markdown-body { user-select: text; -webkit-user-select: text; }
+    
     #glass-root { position: relative; display: flex; width: 100vw; height: 100vh; overflow: hidden; }
     .bg-wallpaper { position: absolute; inset: 0; background: url('/static/bg.jpg') no-repeat center center fixed; background-size: cover; z-index: 0; }
     
@@ -150,6 +156,7 @@
         <div>
           <span id="role-badge" class="badge std">Role: standard</span>
           <button class="vault-btn action-btn" onclick="unlockVault()" style="margin-left:0.5rem;">🔓 Unlock 2FA Vault</button>
+          <button class="action-btn" onclick="exportChat()" style="margin-left:0.5rem;">📥 Export Chat</button>
           <button class="action-btn" onclick="startNewChat()" style="margin-left:0.5rem;">✨ New Chat</button>
         </div>
       </div>
@@ -187,6 +194,50 @@
         }, 2000);
       });
     }
+
+    window.exportChat = function() {
+      const chatBox = document.getElementById("chat-box");
+      const messages = chatBox.querySelectorAll(".msg");
+      
+      if (messages.length === 0 || (messages.length === 1 && chatBox.innerText.includes("Welcome to Laggy"))) {
+        alert("There is no chat history to export.");
+        return;
+      }
+
+      let exportContent = "=================================================\n";
+      exportContent += "         LAGGY - LOCAL SECOND BRAIN EXPORT       \n";
+      exportContent += "=================================================\n\n";
+
+      messages.forEach(msg => {
+        // Skip the typing animation block if it's currently active
+        if (msg.classList.contains("loading-msg") || msg.id === "thinking-anim") return;
+
+        // Clone the node so we can remove the UI buttons/metadata before getting the text
+        const clone = msg.cloneNode(true);
+        
+        const copyBtn = clone.querySelector(".copy-btn");
+        if (copyBtn) copyBtn.remove();
+        
+        const metaDiv = clone.querySelector(".meta");
+        if (metaDiv) metaDiv.remove();
+
+        // Check if user or laggy
+        const sender = msg.classList.contains("user-msg") ? "USER:" : "LAGGY:";
+        
+        exportContent += `${sender}\n${clone.innerText.trim()}\n\n`;
+      });
+
+      // Trigger the browser download
+      const blob = new Blob([exportContent], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Laggy_Chat_${new Date().toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
 
     function formatMessage(content) {
       const rawHtml = marked.parse(content);
